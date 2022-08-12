@@ -6,10 +6,10 @@ HoYa's grep program
 ### Display Help
 > $ hgrep [-h | --help]
 
-### Directory Only Search
+### Search Directory Only
 > $ hgrep [-d | --dir] \<PATTERN>
 
-### File Only Search
+### Search File Only
 > $ hgrep [-f | --file] \<PATTERN>
 
 ### Search in File
