@@ -1,5 +1,14 @@
 use clap::{arg, ArgAction, Command};
 use regex::Regex;
+use std::fs;
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct Searched {
+    stype: char,
+    line: u16,
+    name: String,
+}
 
 fn main() {
     let matches = Command::new("hgrep")
@@ -42,6 +51,41 @@ fn main() {
         is_dir, is_file, is_name, is_recursive, is_ignore, is_whole, is_all, pattern, root_path
     );
 
+    let searched_list = get_list(root_path, is_recursive);
+    println!("{:?}", searched_list);
+
     #[allow(unused_variables)]
     let re = Regex::new(pattern).unwrap();
+}
+
+fn get_list(root_path: &String, is_recursive: bool) -> Vec<Searched> {
+    let mut searched_list: Vec<Searched> = Vec::new();
+
+    let paths = fs::read_dir(root_path).unwrap();
+    for path in paths {
+        let cur_path = path.unwrap().path();
+
+        if cur_path.is_dir() {
+            let searched = Searched {
+                stype: 'D',
+                line: 0,
+                name: cur_path.display().to_string(),
+            };
+            searched_list.push(searched);
+
+            if is_recursive == true {
+                let mut recursive_list = get_list(&cur_path.display().to_string(), is_recursive);
+                searched_list.append(&mut recursive_list);
+            }
+        } else if cur_path.is_file() {
+            let searched = Searched {
+                stype: 'F',
+                line: 0,
+                name: cur_path.display().to_string(),
+            };
+            searched_list.push(searched)
+        }
+    }
+
+    return searched_list;
 }
