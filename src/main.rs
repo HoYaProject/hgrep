@@ -1,6 +1,10 @@
 use clap::{arg, ArgAction, ArgMatches, Command};
 use regex::Regex;
-use std::{fs, path::PathBuf};
+use std::{
+    fs::{self, File},
+    io::{BufRead, BufReader},
+    path::PathBuf,
+};
 
 #[allow(dead_code)]
 struct Searched {
@@ -30,24 +34,29 @@ fn main() {
     let pattern = matches.get_one::<String>("PATTERN").expect("");
     let root_path = PathBuf::from(matches.get_one::<String>("PATH").expect(""));
 
-    println!(
-        "{}, {}, {}, {}, {}, {}: {}, {}",
-        is_dir,
-        is_file,
-        is_name,
-        is_recursive,
-        is_ignore,
-        is_whole,
-        pattern,
-        root_path.display().to_string()
-    );
-
     let re: Regex;
     if is_ignore {
-        let fstring = format!("(?i){}", pattern.to_lowercase());
+        let fstring;
+        if is_whole {
+            fstring = format!(
+                "(?i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
+                pattern.to_lowercase()
+            );
+        } else {
+            fstring = format!("(?i){}", pattern.to_lowercase());
+        }
         re = Regex::new(&fstring).unwrap();
     } else {
-        re = Regex::new(pattern).unwrap();
+        let fstring;
+        if is_whole {
+            fstring = format!(
+                "(?-i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
+                pattern.to_lowercase()
+            );
+        } else {
+            fstring = format!("(?-i){}", pattern.to_lowercase());
+        }
+        re = Regex::new(&fstring).unwrap();
     }
 
     let searched_list = get_list(root_path, is_recursive);
@@ -65,6 +74,29 @@ fn main() {
         } else if is_file && searched.stype == 'F' {
             if re.find(target.to_str().unwrap()) != None {
                 is_print = true;
+            }
+        } else if is_name && searched.stype == 'F' {
+            let file = File::open(&searched.name).unwrap();
+            let reader = BufReader::new(file);
+            let mut is_first = true;
+            for (nline, text) in reader.lines().enumerate() {
+                let converted_text;
+                match text {
+                    Ok(_) => converted_text = text.unwrap(),
+                    Err(_) => continue,
+                }
+                if re.find(&converted_text) != None {
+                    if is_first {
+                        is_first = false;
+                        println!(
+                            "  {}   │ {:>6} │ {}",
+                            searched.stype,
+                            searched.line,
+                            target.to_str().unwrap()
+                        );
+                    }
+                    println!("   {}  │ {:>6} │ > {}", 'N', nline + 1, converted_text);
+                }
             }
         }
 
