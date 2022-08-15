@@ -1,13 +1,12 @@
-use clap::{arg, ArgAction, Command};
+use clap::{arg, ArgAction, ArgMatches, Command};
 use regex::Regex;
-use std::fs;
+use std::{fs, path::PathBuf};
 
-#[derive(Debug)]
 #[allow(dead_code)]
 struct Searched {
     stype: char,
     line: u16,
-    name: String,
+    name: PathBuf,
 }
 
 fn main() {
@@ -27,38 +26,91 @@ fn main() {
         .arg_required_else_help(true)
         .get_matches();
 
-    let is_dir = *matches.get_one::<bool>("dir").expect("defaulted by clap");
-    let is_file = *matches.get_one::<bool>("file").expect("defaulted by clap");
-    let is_name = *matches.get_one::<bool>("name").expect("defaulted by clap");
-    let is_recursive = *matches
-        .get_one::<bool>("recursive")
-        .expect("defaulted by clap");
-    let is_ignore = *matches
-        .get_one::<bool>("ignorecase")
-        .expect("defaulted by clap");
-    let is_whole = *matches
-        .get_one::<bool>("wholeword")
-        .expect("defaulted by clap");
-    let is_all = *matches.get_one::<bool>("all").expect("defaulted by clap");
-    let pattern = matches
-        .get_one::<String>("PATTERN")
-        .expect("defaulted by clap");
-    let root_path = matches
-        .get_one::<String>("PATH")
-        .expect("defaulted by clap");
+    let (is_dir, is_file, is_name, is_recursive, is_ignore, is_whole) = get_args(&matches);
+    let pattern = matches.get_one::<String>("PATTERN").expect("");
+    let root_path = PathBuf::from(matches.get_one::<String>("PATH").expect(""));
+
     println!(
-        "{}, {}, {}, {}, {}, {}, {}: {}, {}",
-        is_dir, is_file, is_name, is_recursive, is_ignore, is_whole, is_all, pattern, root_path
+        "{}, {}, {}, {}, {}, {}: {}, {}",
+        is_dir,
+        is_file,
+        is_name,
+        is_recursive,
+        is_ignore,
+        is_whole,
+        pattern,
+        root_path.display().to_string()
     );
 
-    let searched_list = get_list(root_path, is_recursive);
-    println!("{:?}", searched_list);
+    let re: Regex;
+    if is_ignore {
+        let fstring = format!("(?i){}", pattern.to_lowercase());
+        re = Regex::new(&fstring).unwrap();
+    } else {
+        re = Regex::new(pattern).unwrap();
+    }
 
-    #[allow(unused_variables)]
-    let re = Regex::new(pattern).unwrap();
+    let searched_list = get_list(root_path, is_recursive);
+    println!("──────┬────────┬──────────────────────────────────────────────────────────────");
+    println!(" Type │ Line   │ Location ");
+    println!("──────┼────────┼──────────────────────────────────────────────────────────────");
+    for searched in searched_list {
+        let target = searched.name.file_name().unwrap();
+        let mut is_print = false;
+
+        if is_dir && searched.stype == 'D' {
+            if re.find(target.to_str().unwrap()) != None {
+                is_print = true;
+            }
+        } else if is_file && searched.stype == 'F' {
+            if re.find(target.to_str().unwrap()) != None {
+                is_print = true;
+            }
+        }
+
+        if is_print {
+            println!(
+                "  {}   │ {:>6} │ {}",
+                searched.stype,
+                searched.line,
+                target.to_str().unwrap()
+            );
+        }
+    }
+    println!("──────┴────────┴──────────────────────────────────────────────────────────────");
+
+    // #[allow(unused_variables)]
 }
 
-fn get_list(root_path: &String, is_recursive: bool) -> Vec<Searched> {
+fn get_args(args: &ArgMatches) -> (bool, bool, bool, bool, bool, bool) {
+    let mut is_dir = args.get_one::<bool>("dir").expect("");
+    let mut is_file = args.get_one::<bool>("file").expect("");
+    let mut is_name = args.get_one::<bool>("name").expect("");
+    let mut is_recursive = args.get_one::<bool>("recursive").expect("");
+    let mut is_ignore = args.get_one::<bool>("ignorecase").expect("");
+    let mut is_whole = args.get_one::<bool>("wholeword").expect("");
+    let is_all = args.get_one::<bool>("all").expect("");
+
+    if *is_all || (is_dir | is_file | is_name | is_recursive | is_ignore | is_whole == false) {
+        is_dir = &true;
+        is_file = &true;
+        is_name = &true;
+        is_recursive = &true;
+        is_ignore = &true;
+        is_whole = &true;
+    }
+
+    (
+        *is_dir,
+        *is_file,
+        *is_name,
+        *is_recursive,
+        *is_ignore,
+        *is_whole,
+    )
+}
+
+fn get_list(root_path: PathBuf, is_recursive: bool) -> Vec<Searched> {
     let mut searched_list: Vec<Searched> = Vec::new();
 
     let paths = fs::read_dir(root_path).unwrap();
@@ -66,22 +118,23 @@ fn get_list(root_path: &String, is_recursive: bool) -> Vec<Searched> {
         let cur_path = path.unwrap().path();
 
         if cur_path.is_dir() {
+            let copied_path = cur_path.clone();
             let searched = Searched {
                 stype: 'D',
                 line: 0,
-                name: cur_path.display().to_string(),
+                name: cur_path,
             };
             searched_list.push(searched);
 
             if is_recursive == true {
-                let mut recursive_list = get_list(&cur_path.display().to_string(), is_recursive);
+                let mut recursive_list = get_list(copied_path, is_recursive);
                 searched_list.append(&mut recursive_list);
             }
         } else if cur_path.is_file() {
             let searched = Searched {
                 stype: 'F',
                 line: 0,
-                name: cur_path.display().to_string(),
+                name: cur_path,
             };
             searched_list.push(searched)
         }
