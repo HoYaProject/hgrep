@@ -34,31 +34,7 @@ fn main() {
     let pattern = matches.get_one::<String>("PATTERN").expect("");
     let root_path = PathBuf::from(matches.get_one::<String>("PATH").expect(""));
 
-    let re: Regex;
-    if is_ignore {
-        let fstring;
-        if is_whole {
-            fstring = format!(
-                "(?i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
-                pattern.to_lowercase()
-            );
-        } else {
-            fstring = format!("(?i){}", pattern.to_lowercase());
-        }
-        re = Regex::new(&fstring).unwrap();
-    } else {
-        let fstring;
-        if is_whole {
-            fstring = format!(
-                "(?-i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
-                pattern.to_lowercase()
-            );
-        } else {
-            fstring = format!("(?-i){}", pattern.to_lowercase());
-        }
-        re = Regex::new(&fstring).unwrap();
-    }
-
+    let re = get_re(is_ignore, is_whole, pattern);
     let searched_list = get_list(root_path, is_recursive);
     println!("──────┬────────┬──────────────────────────────────────────────────────────────");
     println!(" Type │ Line   │ Location ");
@@ -110,8 +86,6 @@ fn main() {
         }
     }
     println!("──────┴────────┴──────────────────────────────────────────────────────────────");
-
-    // #[allow(unused_variables)]
 }
 
 fn get_args(args: &ArgMatches) -> (bool, bool, bool, bool, bool, bool) {
@@ -140,6 +114,49 @@ fn get_args(args: &ArgMatches) -> (bool, bool, bool, bool, bool, bool) {
         *is_ignore,
         *is_whole,
     )
+}
+
+fn get_re(is_ignore: bool, is_whole: bool, pattern: &String) -> Regex {
+    let re: Regex;
+    if is_ignore {
+        let fstring;
+        if is_whole {
+            fstring = format!(
+                "(?i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
+                pattern.to_lowercase()
+            );
+        } else {
+            let pattern = pattern.to_lowercase();
+            let chars = pattern.chars();
+            let mut str: String = "".to_string();
+            for char in chars {
+                str += &char.to_string();
+                str += ".*?";
+            }
+            fstring = format!("(?i){}", str);
+        }
+        re = Regex::new(&fstring).unwrap();
+    } else {
+        let fstring;
+        if is_whole {
+            fstring = format!(
+                "(?-i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
+                pattern.to_lowercase()
+            );
+        } else {
+            let pattern = pattern.to_lowercase();
+            let chars = pattern.chars();
+            let mut str: String = "".to_string();
+            for char in chars {
+                str += &char.to_string();
+                str += ".*?";
+            }
+            fstring = format!("(?-i){}", str);
+        }
+        re = Regex::new(&fstring).unwrap();
+    }
+
+    re
 }
 
 fn get_list(root_path: PathBuf, is_recursive: bool) -> Vec<Searched> {
