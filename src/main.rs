@@ -6,7 +6,6 @@ use std::{
     path::PathBuf,
 };
 
-#[allow(dead_code)]
 struct Searched {
     stype: char,
     line: u16,
@@ -65,10 +64,8 @@ fn main() {
                     if is_first {
                         is_first = false;
                         println!(
-                            "  {}   │ {:>6} │ {}",
-                            searched.stype,
-                            searched.line,
-                            target.to_str().unwrap()
+                            "  {}   │ {:>6} │ {:?}",
+                            searched.stype, searched.line, searched.name
                         );
                     }
                     println!("   {}  │ {:>6} │ > {}", 'N', nline + 1, converted_text);
@@ -78,10 +75,8 @@ fn main() {
 
         if is_print {
             println!(
-                "  {}   │ {:>6} │ {}",
-                searched.stype,
-                searched.line,
-                target.to_str().unwrap()
+                "  {}   │ {:>6} │ {:?}",
+                searched.stype, searched.line, searched.name
             );
         }
     }
@@ -122,7 +117,7 @@ fn get_re(is_ignore: bool, is_whole: bool, pattern: &String) -> Regex {
         let fstring;
         if is_whole {
             fstring = format!(
-                "(?i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
+                "(?i)[\\-_./()[[:space:]]]+{}[\\-_./()[[:space:]]]+",
                 pattern.to_lowercase()
             );
         } else {
@@ -140,7 +135,7 @@ fn get_re(is_ignore: bool, is_whole: bool, pattern: &String) -> Regex {
         let fstring;
         if is_whole {
             fstring = format!(
-                "(?-i)[\\-_./[[:space:]]]+{}[\\-_./[[:space:]]]+",
+                "(?-i)[\\-_./()[[:space:]]]+{}[\\-_./()[[:space:]]]+",
                 pattern.to_lowercase()
             );
         } else {
