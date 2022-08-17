@@ -39,15 +39,17 @@ fn main() {
     println!(" Type │ Line   │ Location ");
     println!("──────┼────────┼──────────────────────────────────────────────────────────────");
     for searched in searched_list {
-        let target = searched.name.file_name().unwrap();
+        let full_name = &searched.name.to_string_lossy().to_string().replace('"', "");
+        let target = searched.name.file_name().unwrap().to_str().unwrap();
+
         let mut is_print = false;
 
         if is_dir && searched.stype == 'D' {
-            if re.find(target.to_str().unwrap()) != None {
+            if re.find(target) != None {
                 is_print = true;
             }
         } else if is_file && searched.stype == 'F' {
-            if re.find(target.to_str().unwrap()) != None {
+            if re.find(target) != None {
                 is_print = true;
             }
         } else if is_name && searched.stype == 'F' {
@@ -55,28 +57,47 @@ fn main() {
             let reader = BufReader::new(file);
             let mut is_first = true;
             for (nline, text) in reader.lines().enumerate() {
-                let converted_text;
+                let target;
                 match text {
-                    Ok(_) => converted_text = text.unwrap(),
+                    Ok(_) => target = text.unwrap(),
                     Err(_) => continue,
                 }
-                if re.find(&converted_text) != None {
+
+                let found = re.find(&target);
+                if found != None {
                     if is_first {
                         is_first = false;
                         println!(
-                            "  {}   │ {:>6} │ {:?}",
-                            searched.stype, searched.line, searched.name
+                            "  {}   │ {:>6} │ {}",
+                            searched.stype, searched.line, full_name
                         );
                     }
-                    println!("   {}  │ {:>6} │ > {}", 'N', nline + 1, converted_text);
+                    if target.len() <= 50 {
+                        println!("   {}  │ {:>6} │   {}", 'N', nline + 1, target);
+                    } else if target.len() - found.unwrap().start() <= 50 {
+                        println!(
+                            "   {}  │ {:>6} │   {}",
+                            'N',
+                            nline + 1,
+                            target[found.unwrap().start()..].to_string() + &"...".to_string()
+                        );
+                    } else {
+                        println!(
+                            "   {}  │ {:>6} │   {}",
+                            'N',
+                            nline + 1,
+                            target[found.unwrap().start()..found.unwrap().start() + 50].to_string()
+                                + &"...".to_string()
+                        );
+                    }
                 }
             }
         }
 
         if is_print {
             println!(
-                "  {}   │ {:>6} │ {:?}",
-                searched.stype, searched.line, searched.name
+                "  {}   │ {:>6} │ {}",
+                searched.stype, searched.line, full_name
             );
         }
     }
