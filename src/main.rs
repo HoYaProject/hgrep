@@ -138,36 +138,22 @@ fn get_re(is_ignore: bool, is_whole: bool, pattern: &String) -> Regex {
         let fstring;
         if is_whole {
             fstring = format!(
-                "(?i)[\\-_./()[[:space:]]]+{}[\\-_./()[[:space:]]]+",
+                "(?i)([\\-_./()\\[\\][[:space:]]]+|^){}([\\-_./()\\[\\][[:space:]]]+|$)",
                 pattern.to_lowercase()
             );
         } else {
-            let pattern = pattern.to_lowercase();
-            let chars = pattern.chars();
-            let mut str: String = "".to_string();
-            for char in chars {
-                str += &char.to_string();
-                str += ".*?";
-            }
-            fstring = format!("(?i){}", str);
+            fstring = format!("(?i){}", pattern.to_lowercase());
         }
         re = Regex::new(&fstring).unwrap();
     } else {
         let fstring;
         if is_whole {
             fstring = format!(
-                "(?-i)[\\-_./()[[:space:]]]+{}[\\-_./()[[:space:]]]+",
-                pattern.to_lowercase()
+                "(?-i)([\\-_./()\\[\\][[:space:]]]+|^){}([\\-_./()\\[\\][[:space:]]]+|$)",
+                pattern
             );
         } else {
-            let pattern = pattern.to_lowercase();
-            let chars = pattern.chars();
-            let mut str: String = "".to_string();
-            for char in chars {
-                str += &char.to_string();
-                str += ".*?";
-            }
-            fstring = format!("(?-i){}", str);
+            fstring = format!("(?-i){}", pattern);
         }
         re = Regex::new(&fstring).unwrap();
     }
