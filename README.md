@@ -31,5 +31,20 @@ HoYa's grep program
 
 > $ hgrep \<PATTERN>
 
+### Configure: Exclude Directory
+> $ hgrep [-c | --config] ex_dir \<PATTERN>
+
+### Configure: Exclude File Extension
+> $ hgrep [-c | --config] ex_ext \<PATTERN>
+
+### Configure: Include Directory
+> $ hgrep [-c | --config] in_dir \<PATTERN>
+
+### Configure: Include File Extension
+> $ hgrep [-c | --config] in_ext \<PATTERN>
+
+### Configure: Clear
+> $ hgrep [-c | --config] clear \<ANY CHARACTER>
+
 ### Display Version
 > $ hgrep [-V | --version]
