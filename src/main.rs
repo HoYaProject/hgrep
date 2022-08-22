@@ -1,10 +1,19 @@
 use clap::{arg, ArgAction, ArgMatches, Command};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::PathBuf,
 };
+
+#[derive(Serialize, Deserialize)]
+struct Config {
+    ex_dir: Vec<String>,
+    ex_ext: Vec<String>,
+    in_dir: Vec<String>,
+    in_ext: Vec<String>,
+}
 
 struct Searched {
     stype: char,
@@ -14,9 +23,10 @@ struct Searched {
 
 fn main() {
     let matches = Command::new("hgrep")
-        .version("1.0")
+        .version("1.1")
         .author("llHoYall <hoya128@gmail.com>")
         .about("HoYa's grep program")
+        .arg_required_else_help(true)
         .arg(arg!(-d --dir "Search <PATTERN> in directory only").action(ArgAction::SetTrue))
         .arg(arg!(-f --file "Search <PATTERN> in file only").action(ArgAction::SetTrue))
         .arg(arg!(-n --name "Search <PATTERN> in file contents").action(ArgAction::SetTrue))
@@ -24,16 +34,20 @@ fn main() {
         .arg(arg!(-i --ignorecase "Search with ignoring case").action(ArgAction::SetTrue))
         .arg(arg!(-w --wholeword "Search with the whole word").action(ArgAction::SetTrue))
         .arg(arg!(-a --all "Search with all options").action(ArgAction::SetTrue))
+        .arg(arg!(-c --config <OPTION> "Configure exclude/include\nAvailable Options:\n\tex_dir: Exclude directory\n\tex_ext: Exclude extension\n\tin_dir: Include directory\n\tin_ext: Include extension\n\tclear: Clear configuration").required(false))
         .arg(arg!(<PATTERN> "PATTERN string to search"))
         .arg(arg!([PATH] "Root path to search").default_value("."))
-        .arg_required_else_help(true)
         .get_matches();
 
-    let (is_dir, is_file, is_name, is_recursive, is_ignore, is_whole) = get_args(&matches);
     let pattern = matches.get_one::<String>("PATTERN").expect("");
+    if save_config(&matches, pattern) {
+        return;
+    }
+
+    let (is_dir, is_file, is_name, is_recursive, is_ignore, is_whole) = get_args(&matches);
+    let re = get_re(is_ignore, is_whole, pattern);
     let root_path = PathBuf::from(matches.get_one::<String>("PATH").expect(""));
 
-    let re = get_re(is_ignore, is_whole, pattern);
     let searched_list = get_list(root_path, is_recursive);
     println!("──────┬────────┬──────────────────────────────────────────────────────────────");
     println!(" Type │ Line   │ Location ");
@@ -42,17 +56,23 @@ fn main() {
         let full_name = &searched.name.to_string_lossy().to_string().replace('"', "");
         let target = searched.name.file_name().unwrap().to_str().unwrap();
 
-        let mut is_print = false;
-
         if is_dir && searched.stype == 'D' {
             if re.find(target) != None {
-                is_print = true;
+                println!(
+                    "  {}   │ {:>6} │ {}",
+                    searched.stype, searched.line, full_name
+                );
             }
-        } else if is_file && searched.stype == 'F' {
+        }
+        if is_file && searched.stype == 'F' {
             if re.find(target) != None {
-                is_print = true;
+                println!(
+                    "  {}   │ {:>6} │ {}",
+                    searched.stype, searched.line, full_name
+                );
             }
-        } else if is_name && searched.stype == 'F' {
+        }
+        if is_name && searched.stype == 'F' {
             let file = File::open(&searched.name).unwrap();
             let reader = BufReader::new(file);
             let mut is_first = true;
@@ -93,15 +113,179 @@ fn main() {
                 }
             }
         }
-
-        if is_print {
-            println!(
-                "  {}   │ {:>6} │ {}",
-                searched.stype, searched.line, full_name
-            );
-        }
     }
     println!("──────┴────────┴──────────────────────────────────────────────────────────────");
+}
+
+fn save_config(args: &ArgMatches, pattern: &String) -> bool {
+    let config = args.get_one::<String>("config");
+    if config != None {
+        let mut ret = false;
+        match config {
+            Some(opt) => match opt.as_str() {
+                "ex_dir" => ret = config_exclude(Some(pattern), None),
+                "ex_ext" => ret = config_exclude(None, Some(pattern)),
+                "in_dir" => ret = config_include(Some(pattern), None),
+                "in_ext" => ret = config_include(None, Some(pattern)),
+                "clear" => ret = config_clear(),
+                _ => println!("Error: Not supported option"),
+            },
+            None => println!("Error: Invalid arguments"),
+        }
+        ret
+    } else {
+        false
+    }
+}
+
+fn load_config() -> Config {
+    let mut result = Config {
+        ex_dir: ["".to_string()].to_vec(),
+        ex_ext: ["".to_string()].to_vec(),
+        in_dir: ["".to_string()].to_vec(),
+        in_ext: ["".to_string()].to_vec(),
+    };
+
+    let f = File::open("hgrep_config.json");
+    if f.is_err() {
+        return result;
+    }
+    let mut json = String::new();
+    f.unwrap().read_to_string(&mut json).unwrap();
+    let config: Result<Config, serde_json::Error> = serde_json::from_str(&json);
+    if config.is_err() {
+        return result;
+    }
+    let config = config.unwrap();
+    result.ex_dir = config.ex_dir;
+    result.ex_ext = config.ex_ext;
+    result.in_dir = config.in_dir;
+    result.in_ext = config.in_ext;
+    result
+}
+
+fn check_exclude(path: &PathBuf, config: &Config) -> bool {
+    let full_name = &path.to_string_lossy().to_string().replace('"', "");
+
+    if path.is_dir() {
+        if config
+            .ex_dir
+            .iter()
+            .any(|n| n != "" && full_name.contains(n))
+        {
+            return true;
+        }
+    } else if path.is_file() {
+        let ext = path.extension();
+        if ext.is_some()
+            && config
+                .ex_ext
+                .iter()
+                .any(|n| n != "" && ext.unwrap().to_str() == Some(n))
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn check_include_directory(path: &PathBuf, config: &Config) -> bool {
+    let full_name = &path.to_string_lossy().to_string().replace('"', "");
+
+    if config
+        .in_dir
+        .iter()
+        .any(|n| n != "" && full_name.contains(n))
+    {
+        return true;
+    }
+    false
+}
+
+fn check_include_file(path: &PathBuf, config: &Config) -> bool {
+    let ext = path.extension();
+    if ext.is_some()
+        && config
+            .in_ext
+            .iter()
+            .any(|n| n != "" && ext.unwrap().to_str() == Some(n))
+    {
+        return true;
+    }
+    false
+}
+
+fn config_clear() -> bool {
+    let config = Config {
+        ex_dir: ["".to_string()].to_vec(),
+        ex_ext: ["".to_string()].to_vec(),
+        in_dir: ["".to_string()].to_vec(),
+        in_ext: ["".to_string()].to_vec(),
+    };
+    let config = serde_json::to_writer(
+        &File::create("hgrep_config.json").unwrap(),
+        &serde_json::to_value(config).unwrap(),
+    );
+    if config.is_err() {
+        false;
+    }
+
+    true
+}
+
+fn config_exclude(dir: Option<&String>, ext: Option<&String>) -> bool {
+    let mut config = load_config();
+    if dir != None {
+        config.ex_dir = dir
+            .unwrap()
+            .split(',')
+            .map(|text| text.trim().to_string())
+            .collect();
+    } else if ext != None {
+        config.ex_ext = ext
+            .unwrap()
+            .split(',')
+            .map(|text| text.trim().to_string())
+            .collect();
+    }
+
+    let result = serde_json::to_writer(
+        &File::create("hgrep_config.json").unwrap(),
+        &serde_json::to_value(config).unwrap(),
+    );
+    if result.is_err() {
+        false;
+    }
+
+    true
+}
+
+fn config_include(dir: Option<&String>, ext: Option<&String>) -> bool {
+    let mut config = load_config();
+    if dir != None {
+        config.in_dir = dir
+            .unwrap()
+            .split(',')
+            .map(|text| text.trim().to_string())
+            .collect();
+    } else if ext != None {
+        config.in_ext = ext
+            .unwrap()
+            .split(',')
+            .map(|text| text.trim().to_string())
+            .collect();
+    }
+
+    let result = serde_json::to_writer(
+        &File::create("hgrep_config.json").unwrap(),
+        &serde_json::to_value(config).unwrap(),
+    );
+    if result.is_err() {
+        return false;
+    }
+
+    true
 }
 
 fn get_args(args: &ArgMatches) -> (bool, bool, bool, bool, bool, bool) {
@@ -163,31 +347,40 @@ fn get_re(is_ignore: bool, is_whole: bool, pattern: &String) -> Regex {
 
 fn get_list(root_path: PathBuf, is_recursive: bool) -> Vec<Searched> {
     let mut searched_list: Vec<Searched> = Vec::new();
+    let config = load_config();
 
     let paths = fs::read_dir(root_path).unwrap();
     for path in paths {
         let cur_path = path.unwrap().path();
+        let copied_path = cur_path.clone();
+
+        if check_exclude(&cur_path, &config) {
+            continue;
+        }
 
         if cur_path.is_dir() {
-            let copied_path = cur_path.clone();
-            let searched = Searched {
-                stype: 'D',
-                line: 0,
-                name: cur_path,
-            };
-            searched_list.push(searched);
+            if check_include_directory(&cur_path, &config) {
+                let searched = Searched {
+                    stype: 'D',
+                    line: 0,
+                    name: cur_path,
+                };
+                searched_list.push(searched);
+            }
 
             if is_recursive == true {
                 let mut recursive_list = get_list(copied_path, is_recursive);
                 searched_list.append(&mut recursive_list);
             }
         } else if cur_path.is_file() {
-            let searched = Searched {
-                stype: 'F',
-                line: 0,
-                name: cur_path,
-            };
-            searched_list.push(searched)
+            if check_include_file(&cur_path, &config) {
+                let searched = Searched {
+                    stype: 'F',
+                    line: 0,
+                    name: cur_path,
+                };
+                searched_list.push(searched);
+            }
         }
     }
 
