@@ -1,4 +1,4 @@
-use clap::{arg, ArgAction, ArgMatches, Command};
+use clap::Parser;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,6 +6,65 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::PathBuf,
 };
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "hgrep",
+    version = "1.2",
+    author = "llHoYall <hoya128@gmail.com>",
+    about = "HoYa's grep program",
+    arg_required_else_help = true,
+    color = clap::ColorChoice::Always
+)]
+struct Args {
+    /// PATTERN string to search
+    pattern: String,
+
+    /// Root path to search
+    #[arg(default_value = ".")]
+    path: PathBuf,
+
+    /// Search with all options
+    #[arg(short, long)]
+    all: bool,
+
+    #[arg(
+        short,
+        long,
+        help = "Configure exclude/include\n\
+    Available Options:\n\
+        - ex_dir: Exclude directory\n\
+        - ex_ext: Exclude extension\n\
+        - in_dir: Include directory\n\
+        - in_ext: Include extension\n\
+        - clear: Clear configuration"
+    )]
+    config: Option<String>,
+
+    /// Search <PATTERN> in directory only
+    #[arg(short, long)]
+    dir: bool,
+
+    /// Search <PATTERN> in file only
+    #[arg(short, long)]
+    file: bool,
+
+    /// Search <PATTERN> in file contents
+    #[arg(short, long)]
+    name: bool,
+
+    /// Search with ignoring case
+    #[arg(short, long)]
+    ignorecase: bool,
+
+    /// Search recursively
+    #[arg(short, long)]
+    recursive: bool,
+
+    /// Search with the whole word
+    #[arg(short, long)]
+    wholeword: bool,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Config {
@@ -22,33 +81,16 @@ struct Searched {
 }
 
 fn main() {
-    let matches = Command::new("hgrep")
-        .version("1.1")
-        .author("llHoYall <hoya128@gmail.com>")
-        .about("HoYa's grep program")
-        .arg_required_else_help(true)
-        .arg(arg!(-d --dir "Search <PATTERN> in directory only").action(ArgAction::SetTrue))
-        .arg(arg!(-f --file "Search <PATTERN> in file only").action(ArgAction::SetTrue))
-        .arg(arg!(-n --name "Search <PATTERN> in file contents").action(ArgAction::SetTrue))
-        .arg(arg!(-r --recursive "Search recursively").action(ArgAction::SetTrue))
-        .arg(arg!(-i --ignorecase "Search with ignoring case").action(ArgAction::SetTrue))
-        .arg(arg!(-w --wholeword "Search with the whole word").action(ArgAction::SetTrue))
-        .arg(arg!(-a --all "Search with all options").action(ArgAction::SetTrue))
-        .arg(arg!(-c --config <OPTION> "Configure exclude/include\nAvailable Options:\n\tex_dir: Exclude directory\n\tex_ext: Exclude extension\n\tin_dir: Include directory\n\tin_ext: Include extension\n\tclear: Clear configuration").required(false))
-        .arg(arg!(<PATTERN> "PATTERN string to search"))
-        .arg(arg!([PATH] "Root path to search").default_value("."))
-        .get_matches();
+    let args = Args::parse();
 
-    let pattern = matches.get_one::<String>("PATTERN").expect("");
-    if save_config(&matches, pattern) {
+    if save_config(&args) {
         return;
     }
 
-    let (is_dir, is_file, is_name, is_recursive, is_ignore, is_whole) = get_args(&matches);
-    let re = get_re(is_ignore, is_whole, pattern);
-    let root_path = PathBuf::from(matches.get_one::<String>("PATH").expect(""));
+    let (is_dir, is_file, is_name, is_recursive, is_ignore, is_whole) = get_args(&args);
+    let re = get_re(is_ignore, is_whole, &args.pattern);
 
-    let searched_list = get_list(root_path, is_recursive);
+    let searched_list = get_list(args.path, is_recursive);
     println!("──────┬────────┬──────────────────────────────────────────────────────────────");
     println!(" Type │ Line   │ Location ");
     println!("──────┼────────┼──────────────────────────────────────────────────────────────");
@@ -117,22 +159,19 @@ fn main() {
     println!("──────┴────────┴──────────────────────────────────────────────────────────────");
 }
 
-fn save_config(args: &ArgMatches, pattern: &String) -> bool {
-    let config = args.get_one::<String>("config");
-    if config != None {
-        let mut ret = false;
-        match config {
-            Some(opt) => match opt.as_str() {
-                "ex_dir" => ret = config_exclude(Some(pattern), None),
-                "ex_ext" => ret = config_exclude(None, Some(pattern)),
-                "in_dir" => ret = config_include(Some(pattern), None),
-                "in_ext" => ret = config_include(None, Some(pattern)),
-                "clear" => ret = config_clear(),
-                _ => println!("Error: Not supported option"),
-            },
-            None => println!("Error: Invalid arguments"),
+fn save_config(args: &Args) -> bool {
+    if let Some(opt) = &args.config {
+        match opt.as_str() {
+            "ex_dir" => config_exclude(Some(&args.pattern), None),
+            "ex_ext" => config_exclude(None, Some(&args.pattern)),
+            "in_dir" => config_include(Some(&args.pattern), None),
+            "in_ext" => config_include(None, Some(&args.pattern)),
+            "clear" => config_clear(),
+            _ => {
+                println!("Error: Not supported option");
+                false
+            }
         }
-        ret
     } else {
         false
     }
@@ -186,52 +225,46 @@ fn check_exclude(path: &PathBuf, config: &Config) -> bool {
             return true;
         }
     }
-
     false
 }
 
 fn check_include_directory(path: &PathBuf, config: &Config) -> bool {
-    let full_name = &path.to_string_lossy().to_string().replace('"', "");
-
-    if config
-        .in_dir
-        .iter()
-        .any(|n| n != "" && full_name.contains(n))
-    {
+    if config.in_dir.iter().all(|s| s.is_empty()) {
         return true;
     }
-    false
+
+    let full_name = &path.to_string_lossy().to_string().replace('"', "");
+    config
+        .in_dir
+        .iter()
+        .any(|n| !n.is_empty() && full_name.contains(n))
 }
 
 fn check_include_file(path: &PathBuf, config: &Config) -> bool {
+    if config.in_ext.iter().all(|s| s.is_empty()) {
+        return true;
+    }
+
     let ext = path.extension();
-    if ext.is_some()
+    ext.is_some()
         && config
             .in_ext
             .iter()
-            .any(|n| n != "" && ext.unwrap().to_str() == Some(n))
-    {
-        return true;
-    }
-    false
+            .any(|n| !n.is_empty() && ext.unwrap().to_str() == Some(n))
 }
 
 fn config_clear() -> bool {
     let config = Config {
-        ex_dir: ["".to_string()].to_vec(),
-        ex_ext: ["".to_string()].to_vec(),
-        in_dir: ["".to_string()].to_vec(),
-        in_ext: ["".to_string()].to_vec(),
+        ex_dir: vec!["".to_string()],
+        ex_ext: vec!["".to_string()],
+        in_dir: vec!["".to_string()],
+        in_ext: vec!["".to_string()],
     };
     let config = serde_json::to_writer(
         &File::create("hgrep_config.json").unwrap(),
         &serde_json::to_value(config).unwrap(),
     );
-    if config.is_err() {
-        false;
-    }
-
-    true
+    config.is_ok()
 }
 
 fn config_exclude(dir: Option<&String>, ext: Option<&String>) -> bool {
@@ -288,32 +321,24 @@ fn config_include(dir: Option<&String>, ext: Option<&String>) -> bool {
     true
 }
 
-fn get_args(args: &ArgMatches) -> (bool, bool, bool, bool, bool, bool) {
-    let mut is_dir = args.get_one::<bool>("dir").expect("");
-    let mut is_file = args.get_one::<bool>("file").expect("");
-    let mut is_name = args.get_one::<bool>("name").expect("");
-    let mut is_recursive = args.get_one::<bool>("recursive").expect("");
-    let mut is_ignore = args.get_one::<bool>("ignorecase").expect("");
-    let mut is_whole = args.get_one::<bool>("wholeword").expect("");
-    let is_all = args.get_one::<bool>("all").expect("");
+fn get_args(args: &Args) -> (bool, bool, bool, bool, bool, bool) {
+    let mut is_dir = args.dir;
+    let mut is_file = args.file;
+    let mut is_name = args.name;
+    let mut is_recursive = args.recursive;
+    let mut is_ignore = args.ignorecase;
+    let mut is_whole = args.wholeword;
 
-    if *is_all || (is_dir | is_file | is_name | is_recursive | is_ignore | is_whole == false) {
-        is_dir = &true;
-        is_file = &true;
-        is_name = &true;
-        is_recursive = &true;
-        is_ignore = &true;
-        is_whole = &true;
+    if args.all || !(is_dir | is_file | is_name | is_recursive | is_ignore | is_whole) {
+        is_dir = true;
+        is_file = true;
+        is_name = true;
+        is_recursive = true;
+        is_ignore = true;
+        is_whole = true;
     }
 
-    (
-        *is_dir,
-        *is_file,
-        *is_name,
-        *is_recursive,
-        *is_ignore,
-        *is_whole,
-    )
+    (is_dir, is_file, is_name, is_recursive, is_ignore, is_whole)
 }
 
 fn get_re(is_ignore: bool, is_whole: bool, pattern: &String) -> Regex {
